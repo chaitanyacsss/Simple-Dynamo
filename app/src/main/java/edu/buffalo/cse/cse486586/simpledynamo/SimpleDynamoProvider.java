@@ -219,6 +219,7 @@ public class SimpleDynamoProvider extends ContentProvider {
                         String[] remote_single_selection = readMsg.split(AND_DELIMITER);
                         for (int i = 0; i < remote_single_selection.length; i = i + 2) {
                             matrixCursor.addRow(new Object[]{remote_single_selection[i], remote_single_selection[i + 1]});
+                            Log.d(TAG, "query selection response " + remote_single_selection[i] + " " + remote_single_selection[i + 1]);
                         }
                     }
 
@@ -282,9 +283,12 @@ public class SimpleDynamoProvider extends ContentProvider {
         String key = values.get("key").toString();
 
         String msg = values.get("value").toString();
-        Log.d(TAG, "insert called locally: " + key);
+        Log.d(TAG, "insert called locally: " + key + " " + msg);
         try {
 
+            Log.d(TAG, "insert: erasing stale value for key.");
+            // erase the local value:
+            deleteSelectionLocally(key);
             /**check for home port of the message**/
             List<String> threeports = getHomePortForMessage(key);
             Log.d(TAG, "insert: " + key + " The three ports for this key are : " + threeports.get(0) + " " + threeports.get(1) + " " + threeports.get(2));
@@ -349,7 +353,7 @@ public class SimpleDynamoProvider extends ContentProvider {
             // request my keys from other ports
             String requesting_keys = REQUESTING_ALL_KEYS;
             new ClientTask().executeOnExecutor(AsyncTask.SERIAL_EXECUTOR, requesting_keys, my_port);
-            Thread.sleep(100);
+            //Thread.sleep(100);
         } catch (Exception e) {
             Log.d(TAG, "onCreate: ", e);
         }
@@ -472,6 +476,17 @@ public class SimpleDynamoProvider extends ContentProvider {
                         cv.put("value", value);
                         writeToFile(cv, key, value);
 
+                        if (getHomePortForMessage(key).get(0).equals(my_port)) {
+                            Log.d(TAG, "received key. Sending key to replicas : " + key);
+                            String replica_message_details = INSERT_KEY_ON_REPLICA + AND_DELIMITER + key + AND_DELIMITER + value;
+                            sendMessageToPort(replica_message_details, FIRST_SUCCESSOR_PORT);
+                            sendMessageToPort(replica_message_details, SECOND_SUCCESSOR_PORT);
+                        } else if (getHomePortForMessage(key).get(1).equals(my_port)) {
+                            Log.d(TAG, "received key. Sending key from first to second replica: " + key);
+                            String replica_message_details = INSERT_KEY_ON_REPLICA + AND_DELIMITER + key + AND_DELIMITER + value;
+                            sendMessageToPort(replica_message_details, FIRST_SUCCESSOR_PORT);
+                        }
+
                     } else if (message_type.equals(QUERY_KEY_SECOND_SUCCESSOR) || message_type.equals(QUERY_KEY_FIRST_SUCCESSOR)) {
                         Log.d(TAG, "server task message type: " + message_type);
                         String returnString = null;
@@ -538,6 +553,7 @@ public class SimpleDynamoProvider extends ContentProvider {
                         clientSocket.getOutputStream().flush();
 
                         Log.d(TAG, "Port requested its keys to be sent. " + message_items.get(1));
+                        Log.d(TAG, "sending its keys: " + returnRequest);
                         Thread.sleep(20);
                         clientSocket.close();
                     }
@@ -613,7 +629,7 @@ public class SimpleDynamoProvider extends ContentProvider {
             Socket socket = new Socket(InetAddress.getByAddress(new byte[]{10, 0, 2, 2}),
                     Integer.parseInt(port));
 
-            Log.d(TAG, "request ready! " + messageToSend);
+            Log.d(TAG, "request ready! " + messageToSend + " to port: " + port);
             socket.getOutputStream().write(messageToSend.getBytes());
 
             Thread.sleep(25);
@@ -644,8 +660,19 @@ public class SimpleDynamoProvider extends ContentProvider {
             if (readMsg != null) {
                 Log.d(TAG, "received response for requesting keys!");
                 String[] remote_single_node_all = readMsg.split(AND_DELIMITER);
+                String[] filenameList = new File(getContext().getFilesDir().getAbsolutePath()).list();
+                Log.d(TAG, "sendAndReceiveFromNode: " + filenameList.length);
                 for (int i = 0; i < remote_single_node_all.length; i = i + 2) {
-                    writeToFile(null, remote_single_node_all[i], remote_single_node_all[i + 1]);
+                    String key = remote_single_node_all[i];
+                    if (filenameList != null) {
+                        if (!Arrays.asList(filenameList).contains(key)) {
+                            writeToFile(null, key, remote_single_node_all[i + 1]);
+                        } else {
+                            Log.d(TAG, "sendAndReceiveFromNode: not writing key as it already exists! " + Arrays.asList(filenameList).contains(key) + " " + key);
+                        }
+                    } else {
+                        writeToFile(null, key, remote_single_node_all[i + 1]);
+                    }
                 }
             }
 
@@ -716,6 +743,7 @@ public class SimpleDynamoProvider extends ContentProvider {
             Log.e(TAG, "deleteSelectionLocally: ", e);
             return 1;
         }
+        Log.d(TAG, "deleteSelectionLocally done for key: " + selection);
         return 0;
     }
 
