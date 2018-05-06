@@ -324,6 +324,9 @@ public class SimpleDynamoProvider extends ContentProvider {
     @Override
     public boolean onCreate() {
 
+        // clear local files before
+        deleteAllLocally();
+
         /**getting my port and port-string**/
         TelephonyManager tel = (TelephonyManager) getContext().getSystemService(Context.TELEPHONY_SERVICE);
         String portStr = tel.getLine1Number().substring(tel.getLine1Number().length() - 4);
@@ -351,14 +354,9 @@ public class SimpleDynamoProvider extends ContentProvider {
             PREDECESSOR_PORT = neighbours.get(2);
             PRE_PREDECESSOR_PORT = neighbours.get(3);
 
-            // clear local files before
-            deleteAllLocally();
-            Thread.sleep(200);
-
             // request my keys from other ports
             String requesting_keys = REQUESTING_ALL_KEYS;
             new ClientTask().executeOnExecutor(AsyncTask.SERIAL_EXECUTOR, requesting_keys, my_port);
-            //Thread.sleep(100);
         } catch (Exception e) {
             Log.d(TAG, "onCreate: ", e);
         }
