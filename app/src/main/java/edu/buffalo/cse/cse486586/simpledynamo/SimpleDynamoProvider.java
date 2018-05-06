@@ -55,6 +55,7 @@ public class SimpleDynamoProvider extends ContentProvider {
     static final String INSERT_KEY_FROM_REQUEST_PORT = "insertKeyFromRequestPort";
     static final String QUERY_KEY_SECOND_SUCCESSOR = "querykeyonsecondsuccessor";
     static final String QUERY_KEY_FIRST_SUCCESSOR = "querykeyonfirstsuccessor";
+    static final String QUERY_RESPONSE = "queryresponse";
 
     @Override
     public int delete(Uri uri, String selection, String[] selectionArgs) {
@@ -190,78 +191,81 @@ public class SimpleDynamoProvider extends ContentProvider {
                 Log.d(TAG, "sending query to second successor");
                 // initialize matrix cursor to add response key
                 MatrixCursor matrixCursor = new MatrixCursor(new String[]{"key", "value"});
-                try {
-                    String query_message_details = QUERY_KEY_SECOND_SUCCESSOR + AND_DELIMITER + selection + AND_DELIMITER + my_port + "\n";
-                    Socket second_successor_node_socket = new Socket(InetAddress.getByAddress(new byte[]{10, 0, 2, 2}),
-                            Integer.parseInt(getHomePortForMessage(selection).get(2)));
+                String response = QUERY_RESPONSE;
+                while (response.equals(QUERY_RESPONSE)) {
+                    try {
+                        String query_message_details = QUERY_KEY_SECOND_SUCCESSOR + AND_DELIMITER + selection + AND_DELIMITER + my_port + "\n";
+                        Socket second_successor_node_socket = new Socket(InetAddress.getByAddress(new byte[]{10, 0, 2, 2}),
+                                Integer.parseInt(getHomePortForMessage(selection).get(2)));
 
-                    second_successor_node_socket.getOutputStream().write(query_message_details.getBytes());
-                    second_successor_node_socket.getOutputStream().flush();
-                    Log.d(TAG, "selection sent to second successor: " + selection);
+                        second_successor_node_socket.getOutputStream().write(query_message_details.getBytes());
+                        second_successor_node_socket.getOutputStream().flush();
+                        Log.d(TAG, "selection sent to second successor: " + selection);
 
-                    BufferedReader in;
-                    Thread.sleep(25);
-                    Boolean looper = Boolean.TRUE;
-                    String readMsg = null;
-                    while (looper) {
-                        in = new BufferedReader(new InputStreamReader(second_successor_node_socket.getInputStream()));
-                        readMsg = in.readLine();
-                        if (readMsg != null) {
-                            looper = false;
-                        } else {
-                            in.close();
+                        BufferedReader in;
+                        Thread.sleep(25);
+                        Boolean looper = Boolean.TRUE;
+                        String readMsg = null;
+                        while (looper) {
+                            in = new BufferedReader(new InputStreamReader(second_successor_node_socket.getInputStream()));
+                            readMsg = in.readLine();
+                            if (readMsg != null) {
+                                looper = false;
+                            } else {
+                                in.close();
+                            }
                         }
-                    }
-                    Thread.sleep(20);
+                        Thread.sleep(20);
 
-                    if (readMsg != null) {
-                        Log.d(TAG, "received response for selection query!");
-                        String[] remote_single_selection = readMsg.split(AND_DELIMITER);
-                        for (int i = 0; i < remote_single_selection.length; i = i + 2) {
-                            matrixCursor.addRow(new Object[]{remote_single_selection[i], remote_single_selection[i + 1]});
-                            Log.d(TAG, "query selection response " + remote_single_selection[i] + " " + remote_single_selection[i + 1]);
+                        if (readMsg != null && !readMsg.equals(QUERY_RESPONSE)) {
+                            response = readMsg;
+                            Log.d(TAG, "received response for selection query!");
+                            String[] remote_single_selection = readMsg.split(AND_DELIMITER);
+                            for (int i = 0; i < remote_single_selection.length; i = i + 2) {
+                                matrixCursor.addRow(new Object[]{remote_single_selection[i], remote_single_selection[i + 1]});
+                                Log.d(TAG, "query selection response " + remote_single_selection[i] + " " + remote_single_selection[i + 1]);
+                            }
                         }
-                    }
 
-                    second_successor_node_socket.close();
+                        second_successor_node_socket.close();
 
-                } catch (IOException e) {
-                    Log.d(TAG, "error querying second replica: " + e.getMessage());
-                    /** Error implies the second successor is dead. so query the first successor**/
-                    Socket first_successor_socket = new Socket(InetAddress.getByAddress(new byte[]{10, 0, 2, 2}),
-                            Integer.parseInt(getHomePortForMessage(selection).get(1)));
-                    String query_message_details_new = QUERY_KEY_FIRST_SUCCESSOR + AND_DELIMITER + selection + AND_DELIMITER + my_port + "\n";
-                    first_successor_socket.getOutputStream().write(query_message_details_new.getBytes());
-                    first_successor_socket.getOutputStream().flush();
+                    } catch (IOException e) {
+                        Log.d(TAG, "error querying second replica: " + e.getMessage());
+                        /** Error implies the second successor is dead. so query the first successor**/
+                        Socket first_successor_socket = new Socket(InetAddress.getByAddress(new byte[]{10, 0, 2, 2}),
+                                Integer.parseInt(getHomePortForMessage(selection).get(1)));
+                        String query_message_details_new = QUERY_KEY_FIRST_SUCCESSOR + AND_DELIMITER + selection + AND_DELIMITER + my_port + "\n";
+                        first_successor_socket.getOutputStream().write(query_message_details_new.getBytes());
+                        first_successor_socket.getOutputStream().flush();
 
-                    BufferedReader in;
-                    Thread.sleep(25);
+                        BufferedReader in;
+                        Thread.sleep(25);
 
-                    Boolean looper = Boolean.TRUE;
-                    String readMsg = null;
-                    while (looper) {
-                        in = new BufferedReader(new InputStreamReader(first_successor_socket.getInputStream()));
-                        readMsg = in.readLine();
-                        if (readMsg != null) {
-                            looper = false;
-                        } else {
-                            in.close();
+                        Boolean looper = Boolean.TRUE;
+                        String readMsg = null;
+                        while (looper) {
+                            in = new BufferedReader(new InputStreamReader(first_successor_socket.getInputStream()));
+                            readMsg = in.readLine();
+                            if (readMsg != null) {
+                                looper = false;
+                            } else {
+                                in.close();
+                            }
                         }
-                    }
-                    Thread.sleep(20);
-                    if (readMsg != null) {
-                        Log.d(TAG, "received response for star query!");
-                        String[] remote_single_selection = readMsg.split(AND_DELIMITER);
-                        for (int i = 0; i < remote_single_selection.length; i = i + 2) {
-                            matrixCursor.addRow(new Object[]{remote_single_selection[i], remote_single_selection[i + 1]});
+                        Thread.sleep(20);
+                        if (readMsg != null && !readMsg.equals(QUERY_RESPONSE)) {
+                            response = readMsg;
+                            Log.d(TAG, "received response for selection query!");
+                            String[] remote_single_selection = readMsg.split(AND_DELIMITER);
+                            for (int i = 0; i < remote_single_selection.length; i = i + 2) {
+                                matrixCursor.addRow(new Object[]{remote_single_selection[i], remote_single_selection[i + 1]});
+                            }
                         }
+                        first_successor_socket.close();
                     }
-
-                    first_successor_socket.close();
-                } finally {
-                    Log.d(TAG, "returning matrix cursor");
-                    return matrixCursor;
                 }
+                Log.d(TAG, "returning matrix cursor");
+                return matrixCursor;
 
             }
         } catch (Exception e) {
@@ -349,6 +353,7 @@ public class SimpleDynamoProvider extends ContentProvider {
 
             // clear local files before
             deleteAllLocally();
+            Thread.sleep(200);
 
             // request my keys from other ports
             String requesting_keys = REQUESTING_ALL_KEYS;
@@ -396,6 +401,7 @@ public class SimpleDynamoProvider extends ContentProvider {
             outputStream = getContext().openFileOutput(key, Context.MODE_PRIVATE);
             outputStream.write(msg.getBytes());
             outputStream.close();
+            Log.d(TAG, "writeToFile: what value is written for this key = " + key + "?  " + querySelectionLocallyForString(key));
         } catch (Exception e) {
             Log.e("GroupMessengerProvider", "File write failed");
         }
@@ -489,9 +495,11 @@ public class SimpleDynamoProvider extends ContentProvider {
 
                     } else if (message_type.equals(QUERY_KEY_SECOND_SUCCESSOR) || message_type.equals(QUERY_KEY_FIRST_SUCCESSOR)) {
                         Log.d(TAG, "server task message type: " + message_type);
-                        String returnString = null;
-                        while (returnString == null) {
-                            returnString = querySelectionLocallyForString(message_items.get(1));
+                        String returnString = querySelectionLocallyForString(message_items.get(1));
+                        if (returnString == null) {
+                            returnString = QUERY_RESPONSE + "\n";
+                        } else {
+                            returnString = returnString + "\n";
                         }
                         Log.d(TAG, "query on successor response ready to send back: " + returnString + " " + message_items.get(2));
 
@@ -660,9 +668,9 @@ public class SimpleDynamoProvider extends ContentProvider {
             if (readMsg != null) {
                 Log.d(TAG, "received response for requesting keys!");
                 String[] remote_single_node_all = readMsg.split(AND_DELIMITER);
-                String[] filenameList = new File(getContext().getFilesDir().getAbsolutePath()).list();
-                Log.d(TAG, "sendAndReceiveFromNode: " + filenameList.length);
                 for (int i = 0; i < remote_single_node_all.length; i = i + 2) {
+                    String[] filenameList = new File(getContext().getFilesDir().getAbsolutePath()).list();
+                    Log.d(TAG, "sendAndReceiveFromNode number of saved files: " + filenameList.length);
                     String key = remote_single_node_all[i];
                     if (filenameList != null) {
                         if (!Arrays.asList(filenameList).contains(key)) {
@@ -753,6 +761,7 @@ public class SimpleDynamoProvider extends ContentProvider {
 
             try {
                 getContext().deleteFile(file.getName());
+                Log.d(TAG, "deleteAllLocally: local file deleted with name. " + file.getName());
             } catch (Exception e) {
                 Log.e(TAG, "deleteAllLocally: ", e);
                 return 1;
@@ -771,6 +780,9 @@ public class SimpleDynamoProvider extends ContentProvider {
             BufferedReader in = new BufferedReader(new InputStreamReader(inputStream));
 
             value = in.readLine();
+            if (value == null) {
+                return null;
+            }
         } catch (Exception e) {
             Log.d(TAG, "querySelectionLocally: no file found");
             return null;
